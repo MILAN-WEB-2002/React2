@@ -24,6 +24,7 @@ export const extractFrames = async (videoFile: File, intervalSeconds: number = 1
           video.currentTime = currentTime;
         } else {
           resolve(frames);
+          URL.revokeObjectURL(video.src);
         }
       };
 
@@ -41,6 +42,37 @@ export const extractFrames = async (videoFile: File, intervalSeconds: number = 1
       };
 
       capture();
+    };
+
+    video.onerror = (e) => reject(e);
+  });
+};
+
+/**
+ * Extracts a single frame from a video at a specific timestamp (in seconds).
+ */
+export const extractFrameAtSeconds = async (videoFile: File, seconds: number): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.src = URL.createObjectURL(videoFile);
+    video.load();
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    video.onloadedmetadata = () => {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      video.currentTime = Math.min(seconds, video.duration);
+    };
+
+    video.onseeked = () => {
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        resolve(dataUrl);
+        URL.revokeObjectURL(video.src);
+      }
     };
 
     video.onerror = (e) => reject(e);

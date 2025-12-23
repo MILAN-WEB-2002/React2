@@ -1,5 +1,5 @@
 {
-  "name": "Copy of React",
+  "name": "React",
   "description": "An AI-powered application that analyzes video to detect two-wheeler riders disposing of waste and automatically extracts their license plate numbers.",
   "requestFramePermissions": [
     "camera"

@@ -13,7 +13,7 @@ export const analyzeVideoFrames = async (frames: {data: string; timestamp: numbe
     Your objective is to identify any 'two-wheeler' (motorcycle, scooter, bike) where the rider or passenger is disposing of waste (littering).
     
     For each incident found:
-    1. Identify the 'timestamp' from the image sequence.
+    1. Identify the 'timestamp' in seconds relative to the start of the video (e.g., "5.2").
     2. Provide a 'vehicleDescription' (color, type).
     3. Describe the 'actionDescription' (e.g., "threw a plastic bag").
     4. Extract the 'licensePlate' number from the vehicle if visible. Be as precise as possible.

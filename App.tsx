@@ -1,9 +1,10 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import VideoUploader from './components/VideoUploader';
 import AnalysisResults from './components/AnalysisResults';
+import VideoPlayer, { VideoPlayerHandle } from './components/VideoPlayer';
 import { analyzeVideoFrames } from './services/geminiService';
-import { extractFrames } from './utils/videoUtils';
+import { extractFrames, extractFrameAtSeconds } from './utils/videoUtils';
 import { Incident, AnalysisStatus } from './types';
 
 const App: React.FC = () => {
@@ -11,13 +12,20 @@ const App: React.FC = () => {
   const [status, setStatus] = useState<AnalysisStatus>(AnalysisStatus.IDLE);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [progress, setProgress] = useState<string>('');
+  const [progressPercentage, setProgressPercentage] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
+  const videoPlayerRef = useRef<VideoPlayerHandle>(null);
 
   const handleVideoSelect = (file: File) => {
     setVideoFile(file);
     setError(null);
     setIncidents([]);
     setStatus(AnalysisStatus.IDLE);
+    setProgressPercentage(0);
+  };
+
+  const handleSeekToIncident = (seconds: number) => {
+    videoPlayerRef.current?.seekTo(seconds);
   };
 
   const startAnalysis = async () => {
@@ -25,19 +33,51 @@ const App: React.FC = () => {
 
     try {
       setStatus(AnalysisStatus.PROCESSING);
-      setProgress('Extracting key frames from video...');
       
-      // Sample video frames (1 every 1 second, up to 15 frames)
+      // Stage 1: Frame Extraction
+      setProgress('Extracting key frames from video...');
+      setProgressPercentage(10);
       const frames = await extractFrames(videoFile, 1.5, 12);
+      setProgressPercentage(30);
       
       if (frames.length === 0) {
         throw new Error("Could not extract frames from the video.");
       }
 
+      // Stage 2: AI Analysis
       setProgress('AI is scanning for two-wheelers and waste disposal...');
+      setProgressPercentage(40);
       const result = await analyzeVideoFrames(frames);
+      setProgressPercentage(75);
       
-      setIncidents(result.incidents);
+      // Stage 3: Thumbnail Generation
+      if (result.incidents.length > 0) {
+        setProgress('Generating incident thumbnails...');
+        setProgressPercentage(80);
+        
+        const incidentsWithThumbnails = await Promise.all(
+          result.incidents.map(async (incident, index) => {
+            try {
+              const seconds = parseFloat(incident.timestamp);
+              if (!isNaN(seconds)) {
+                const thumbnailUrl = await extractFrameAtSeconds(videoFile, seconds);
+                // Gradually increase progress for each thumbnail
+                const subProgress = 80 + ((index + 1) / result.incidents.length) * 15;
+                setProgressPercentage(Math.min(95, subProgress));
+                return { ...incident, thumbnailUrl };
+              }
+            } catch (err) {
+              console.warn("Failed to extract thumbnail for incident", incident.id, err);
+            }
+            return incident;
+          })
+        );
+        setIncidents(incidentsWithThumbnails);
+      } else {
+        setIncidents([]);
+      }
+
+      setProgressPercentage(100);
       setStatus(AnalysisStatus.SUCCESS);
       setProgress('');
     } catch (err: any) {
@@ -45,6 +85,7 @@ const App: React.FC = () => {
       setError(err.message || 'An unexpected error occurred during analysis.');
       setStatus(AnalysisStatus.ERROR);
       setProgress('');
+      setProgressPercentage(0);
     }
   };
 
@@ -61,7 +102,7 @@ const App: React.FC = () => {
               </svg>
             </div>
             <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-indigo-800">
-              EcoWatch AI
+              React
             </h1>
           </div>
           <div className="hidden md:flex items-center space-x-4 text-sm font-medium text-slate-500">
@@ -79,17 +120,28 @@ const App: React.FC = () => {
           <div className="lg:col-span-4 space-y-6">
             <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
               <h2 className="text-lg font-bold text-slate-800 mb-4">Input Data</h2>
-              <VideoUploader 
-                onFileSelect={handleVideoSelect} 
-                disabled={status === AnalysisStatus.PROCESSING} 
-              />
-              
-              {videoFile && (
-                <div className="mt-6 space-y-4">
+              {!videoFile ? (
+                <VideoUploader 
+                  onFileSelect={handleVideoSelect} 
+                  disabled={status === AnalysisStatus.PROCESSING} 
+                />
+              ) : (
+                <div className="space-y-4">
+                  <VideoPlayer ref={videoPlayerRef} file={videoFile} />
+                  
                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-tighter mb-2">Selected File</p>
-                    <div className="flex items-center space-x-3">
-                      <div className="bg-white p-2 rounded shadow-sm">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-tighter">Current File</p>
+                      <button 
+                        onClick={() => setVideoFile(null)}
+                        className="text-[10px] font-bold text-red-500 hover:text-red-600 uppercase"
+                        disabled={status === AnalysisStatus.PROCESSING}
+                      >
+                        Change
+                      </button>
+                    </div>
+                    <div className="flex items-center space-x-3 overflow-hidden">
+                      <div className="bg-white p-2 rounded shadow-sm shrink-0">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                         </svg>
@@ -113,20 +165,30 @@ const App: React.FC = () => {
               )}
             </section>
 
-            {/* Analysis Status */}
+            {/* Analysis Status with Visual Progress Bar */}
             {status === AnalysisStatus.PROCESSING && (
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 space-y-4 text-center">
-                <div className="inline-block relative">
-                  <div className="w-16 h-16 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-                    </svg>
-                  </div>
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 space-y-6">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Analysis Progress</h3>
+                  <span className="text-indigo-600 font-mono font-bold">{Math.round(progressPercentage)}%</span>
                 </div>
-                <div>
-                  <h3 className="text-lg font-bold text-slate-800">Analyzing...</h3>
-                  <p className="text-slate-500 text-sm mt-1">{progress}</p>
+                
+                <div className="relative w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+                  <div 
+                    className="absolute top-0 left-0 h-full bg-gradient-to-r from-indigo-500 to-indigo-700 transition-all duration-500 ease-out rounded-full shadow-[0_0_8px_rgba(79,70,229,0.4)]"
+                    style={{ width: `${progressPercentage}%` }}
+                  />
+                </div>
+                
+                <div className="flex flex-col items-center space-y-3">
+                  <div className="flex items-center space-x-2 text-indigo-600 animate-pulse">
+                    <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <p className="text-xs font-semibold uppercase tracking-widest">{progress}</p>
+                  </div>
+                  <p className="text-[10px] text-slate-400 text-center max-w-[200px]">This process involves frame sampling, multimodal AI verification, and metadata extraction.</p>
                 </div>
               </div>
             )}
@@ -153,7 +215,37 @@ const App: React.FC = () => {
           {/* Right Column: Results Display */}
           <div className="lg:col-span-8">
             {status === AnalysisStatus.SUCCESS ? (
-              <AnalysisResults incidents={incidents} />
+              <AnalysisResults incidents={incidents} onSeekTo={handleSeekToIncident} />
+            ) : status === AnalysisStatus.PROCESSING ? (
+              <div className="h-full min-h-[400px] flex flex-col items-center justify-center bg-white rounded-2xl border border-slate-100 p-8 shadow-sm">
+                 <div className="w-full max-w-md space-y-8">
+                    <div className="text-center space-y-2">
+                        <h3 className="text-xl font-bold text-slate-800">Processing Your Footage</h3>
+                        <p className="text-slate-500">Our neural engine is analyzing every movement for waste disposal violations.</p>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 gap-4">
+                        {[
+                          { label: 'Sampling Video', val: progressPercentage >= 30 },
+                          { label: 'AI Visual Scan', val: progressPercentage >= 75 },
+                          { label: 'Evidence Extraction', val: progressPercentage >= 95 }
+                        ].map((step, i) => (
+                          <div key={i} className={`flex items-center space-x-3 p-3 rounded-lg border ${step.val ? 'bg-indigo-50 border-indigo-100' : 'bg-slate-50 border-slate-100 opacity-50'}`}>
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${step.val ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-400'}`}>
+                              {step.val ? (
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                </svg>
+                              ) : (
+                                <span className="text-[10px] font-bold">{i + 1}</span>
+                              )}
+                            </div>
+                            <span className={`text-sm font-bold ${step.val ? 'text-indigo-900' : 'text-slate-500'}`}>{step.label}</span>
+                          </div>
+                        ))}
+                    </div>
+                 </div>
+              </div>
             ) : (
               <div className="h-full min-h-[400px] flex flex-col items-center justify-center bg-white rounded-2xl border-2 border-dashed border-slate-200 text-slate-400 p-8">
                 <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-6">
