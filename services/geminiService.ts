@@ -12,12 +12,14 @@ export const analyzeVideoFrames = async (frames: {data: string; timestamp: numbe
     Analyze this sequence of images from a surveillance camera.
     Your objective is to identify any 'two-wheeler' (motorcycle, scooter, bike) where the rider or passenger is disposing of waste (littering).
     
+    CRITICAL INSTRUCTION: Although there may be multiple vehicles in the frame, ONLY include/count the specific vehicles where waste disposal is actively occurring. Do not include reports for other vehicles that are just passing by without littering.
+
     For each incident found:
     1. Identify the 'timestamp' in seconds relative to the start of the video (e.g., "5.2").
     2. Provide a 'vehicleDescription' (color, type).
     3. Describe the 'actionDescription' (e.g., "threw a plastic bag").
     4. Extract the 'licensePlate' number from the vehicle if visible. Be as precise as possible.
-    5. Assign a 'confidence' score between 0 and 1.
+    5. Assign a 'confidence' score between 0 and 1 based on the clarity of the littering action.
 
     If no incident is found, return an empty list of incidents.
   `;
